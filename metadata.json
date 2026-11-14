@@ -1,0 +1,6 @@
+{
+  "name": "PTTP Staff",
+  "description": "College staff attendance system for Pt. T. P. Shukla College with Login ID to Gmail mapping, PHP/MySQL REST integration, and real-time SMTP email notifications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

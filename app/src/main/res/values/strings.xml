@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">PTTP Staff</string>
+    <string name="college_full_name">Pt. T. P. Shukla College</string>
+    <string name="college_portal_url">https://pttpshuklacollege.com/</string>
+    <string name="default_api_base_url">https://pttpshuklacollege.com/api/</string>
+    <string name="cd_campus_banner">Pt. T. P. Shukla College campus illustration</string>
+    <string name="cd_gmail_sync_art">Staff Login ID to Gmail synchronization illustration</string>
+</resources>
