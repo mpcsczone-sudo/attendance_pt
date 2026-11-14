@@ -29,9 +29,9 @@ if ($dup->fetch()) {
 $hash = password_hash($password, PASSWORD_DEFAULT);
 // Save with PENDING approval_status and is_active = 0 until Admin approves
 $ins = $pdo->prepare(
-    'INSERT INTO staff_users
+    "INSERT INTO staff_users
      (login_id, gmail_id, gmail_verified, full_name, department, designation, role, approval_status, password_hash, is_active)
-     VALUES (?, ?, 0, ?, ?, ?, ?, "PENDING", ?, 0)'
+     VALUES (?, ?, 0, ?, ?, ?, ?, 'PENDING', ?, 0)"
 );
 $ins->execute([$loginId, $gmailId, $fullName, $department, $designation, $role, $hash]);
 $staffId = (int)$pdo->lastInsertId();

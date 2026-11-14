@@ -1,4 +1,4 @@
--- Pt. T. P. Shukla College Staff Attendance & Gmail Mapping Schema
+-- Pt. T. P. Shukla College Staff Attendance, Geo-Face Check-In & Time Mapping Schema
 -- Compatible with MySQL 8.0+ / MariaDB 10.4+
 
 CREATE DATABASE IF NOT EXISTS `pttp_staff_attendance`
@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS `staff_users` (
   `department` VARCHAR(100) NOT NULL,
   `designation` VARCHAR(100) NOT NULL DEFAULT 'Faculty',
   `role` ENUM('STAFF', 'HOD', 'ADMIN') NOT NULL DEFAULT 'STAFF',
+  `shift_start_time` TIME NOT NULL DEFAULT '09:30:00',
+  `shift_end_time` TIME NOT NULL DEFAULT '16:30:00',
   `approval_status` ENUM('PENDING', 'APPROVED', 'REJECTED') NOT NULL DEFAULT 'PENDING',
   `approved_by` INT UNSIGNED DEFAULT NULL,
   `approved_at` DATETIME DEFAULT NULL,
@@ -65,6 +67,12 @@ CREATE TABLE IF NOT EXISTS `attendance_records` (
   `check_in_time` TIME DEFAULT NULL,
   `check_out_time` TIME DEFAULT NULL,
   `status` ENUM('PRESENT', 'LATE', 'ON_DUTY', 'HALF_DAY', 'ABSENT') NOT NULL DEFAULT 'PRESENT',
+  `latitude` DECIMAL(10,7) DEFAULT NULL,
+  `longitude` DECIMAL(10,7) DEFAULT NULL,
+  `geo_accuracy_m` FLOAT DEFAULT NULL,
+  `geo_address` VARCHAR(255) DEFAULT NULL,
+  `face_verified` TINYINT(1) NOT NULL DEFAULT 0,
+  `face_confidence` FLOAT DEFAULT NULL,
   `remarks` VARCHAR(255) NOT NULL DEFAULT '',
   `device_info` VARCHAR(160) NOT NULL DEFAULT '',
   `check_in_source` VARCHAR(40) NOT NULL DEFAULT 'ANDROID_APP',
@@ -110,9 +118,24 @@ CREATE TABLE IF NOT EXISTS `smtp_notification_logs` (
   CONSTRAINT `fk_smtp_staff` FOREIGN KEY (`staff_id`) REFERENCES `staff_users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Seed initial Principal / Admin account (Change password after first login!)
--- Default password below is: Admin@12345 (bcrypt)
+CREATE TABLE IF NOT EXISTS `admin_messages` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `parent_id` BIGINT UNSIGNED DEFAULT NULL,
+  `sender_staff_id` INT UNSIGNED NOT NULL,
+  `target_staff_id` INT UNSIGNED DEFAULT NULL,
+  `title` VARCHAR(180) NOT NULL DEFAULT '',
+  `message_body` TEXT NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_msg_parent` (`parent_id`),
+  KEY `idx_msg_target` (`target_staff_id`, `created_at`),
+  CONSTRAINT `fk_msg_parent` FOREIGN KEY (`parent_id`) REFERENCES `admin_messages` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_msg_sender` FOREIGN KEY (`sender_staff_id`) REFERENCES `staff_users` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_msg_target` FOREIGN KEY (`target_staff_id`) REFERENCES `staff_users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed initial Principal / Admin account
 INSERT IGNORE INTO `staff_users`
-  (`login_id`, `gmail_id`, `gmail_verified`, `full_name`, `department`, `designation`, `role`, `approval_status`, `approved_at`, `password_hash`, `is_active`)
+  (`login_id`, `gmail_id`, `gmail_verified`, `full_name`, `department`, `designation`, `role`, `shift_start_time`, `shift_end_time`, `approval_status`, `approved_at`, `password_hash`, `is_active`)
 VALUES
-  ('PTTP-ADMIN-001', 'mpcsczone@gmail.com', 1, 'College Principal / Admin', 'Administration', 'Principal', 'ADMIN', 'APPROVED', NOW(), '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 1);
+  ('PTTP-ADMIN-001', 'mpcsczone@gmail.com', 1, 'College Principal / Admin', 'Administration', 'Principal', 'ADMIN', '09:30:00', '16:30:00', 'APPROVED', NOW(), '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 1);

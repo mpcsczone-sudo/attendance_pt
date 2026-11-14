@@ -66,7 +66,9 @@ object NetworkClient {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "pttp_staff_cache.db"
-            ).build().also { databaseInstance = it }
+            ).fallbackToDestructiveMigration(true)
+                .build()
+                .also { databaseInstance = it }
         }
     }
 

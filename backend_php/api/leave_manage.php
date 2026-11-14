@@ -27,8 +27,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         }
 
         $ins = $pdo->prepare(
-            'INSERT INTO leave_requests (staff_id, leave_type, start_date, end_date, reason, status)
-             VALUES (?, ?, ?, ?, ?, "PENDING")'
+            "INSERT INTO leave_requests (staff_id, leave_type, start_date, end_date, reason, status)
+             VALUES (?, ?, ?, ?, ?, 'PENDING')"
         );
         $ins->execute([$staffId, $leaveType, $startDate, $endDate, $reason]);
 
@@ -75,6 +75,27 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
         $receipt = send_smtp_and_log($pdo, (int)$target['staff_id'], (string)$target['gmail_id'], 'LEAVE_' . $newStatus, $subject, $html);
         $msg = "Request {$newStatus} and SMTP notification sent to {$target['gmail_id']}.";
+    } elseif ($action === 'cancel') {
+        $requestId = (int)($body['request_id'] ?? 0);
+        $q = $pdo->prepare('SELECT * FROM leave_requests WHERE id = ? AND staff_id = ? LIMIT 1');
+        $q->execute([$requestId, $staffId]);
+        $target = $q->fetch();
+        if (!$target) {
+            json_error('Leave request not found.', 404);
+        }
+        if (strtoupper((string)$target['status']) !== 'PENDING') {
+            json_error("Cannot cancel: request is already {$target['status']}.", 409);
+        }
+
+        $del = $pdo->prepare("DELETE FROM leave_requests WHERE id = ? AND staff_id = ? AND status = 'PENDING'");
+        $del->execute([$requestId, $staffId]);
+
+        $subject = "[PTTP Leave Cancelled] {$staff['login_id']} ({$target['leave_type']})";
+        $html = "<h3>Pending Leave Request Cancelled</h3>"
+              . "<p><strong>Staff:</strong> " . htmlspecialchars((string)$staff['full_name']) . " ({$staff['login_id']})</p>"
+              . "<p>Your pending <strong>{$target['leave_type']}</strong> request ({$target['start_date']} to {$target['end_date']}) was cancelled before approval.</p>";
+        $receipt = send_smtp_and_log($pdo, $staffId, (string)$staff['gmail_id'], 'LEAVE_CANCELLED', $subject, $html);
+        $msg = 'Pending leave request cancelled.';
     } else {
         json_error('Unsupported leave action.', 400);
     }
@@ -112,19 +133,19 @@ $pendingApprovals = [];
 if (in_array($staff['role'], ['HOD', 'ADMIN'], true)) {
     if ($staff['role'] === 'ADMIN') {
         $pStmt = $pdo->query(
-            'SELECT l.*, u.login_id, u.full_name, u.gmail_id, u.department
+            "SELECT l.*, u.login_id, u.full_name, u.gmail_id, u.department
              FROM leave_requests l
              INNER JOIN staff_users u ON u.id = l.staff_id
-             WHERE l.status = "PENDING"
-             ORDER BY l.id DESC LIMIT 50'
+             WHERE l.status = 'PENDING'
+             ORDER BY l.id DESC LIMIT 50"
         );
     } else {
         $pStmt = $pdo->prepare(
-            'SELECT l.*, u.login_id, u.full_name, u.gmail_id, u.department
+            "SELECT l.*, u.login_id, u.full_name, u.gmail_id, u.department
              FROM leave_requests l
              INNER JOIN staff_users u ON u.id = l.staff_id
-             WHERE l.status = "PENDING" AND u.department = ?
-             ORDER BY l.id DESC LIMIT 50'
+             WHERE l.status = 'PENDING' AND u.department = ?
+             ORDER BY l.id DESC LIMIT 50"
         );
         $pStmt->execute([$staff['department']]);
     }

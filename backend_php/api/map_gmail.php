@@ -26,8 +26,8 @@ if ($action === 'initiate_link') {
     $expiresAt = date('Y-m-d H:i:s', time() + 600);
 
     $pdo->prepare(
-        'INSERT INTO otp_verifications (staff_id, gmail_id, otp_hash, purpose, expires_at)
-         VALUES (?, ?, ?, "GMAIL_LINK", ?)'
+        "INSERT INTO otp_verifications (staff_id, gmail_id, otp_hash, purpose, expires_at)
+         VALUES (?, ?, ?, 'GMAIL_LINK', ?)"
     )->execute([(int)$actor['id'], $gmailId, $otpHash, $expiresAt]);
 
     $subject = "Verify Login ID {$actor['login_id']} ↔ Gmail Mapping";
@@ -47,10 +47,10 @@ if ($action === 'initiate_link') {
 
 if ($action === 'confirm_link') {
     $q = $pdo->prepare(
-        'SELECT * FROM otp_verifications
-         WHERE staff_id = ? AND LOWER(gmail_id) = ? AND purpose = "GMAIL_LINK"
+        "SELECT * FROM otp_verifications
+         WHERE staff_id = ? AND LOWER(gmail_id) = ? AND purpose = 'GMAIL_LINK'
            AND consumed_at IS NULL AND expires_at > NOW()
-         ORDER BY id DESC LIMIT 1'
+         ORDER BY id DESC LIMIT 1"
     );
     $q->execute([(int)$actor['id'], $gmailId]);
     $row = $q->fetch();

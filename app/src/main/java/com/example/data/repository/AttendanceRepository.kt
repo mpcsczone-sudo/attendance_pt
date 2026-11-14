@@ -1,18 +1,24 @@
 package com.example.data.repository
 
 import android.os.Build
+import com.example.data.local.AdminMessageEntity
+import com.example.data.local.AdminReplyEntity
 import com.example.data.local.AttendanceDao
 import com.example.data.local.AttendanceEntity
 import com.example.data.local.LeaveRequestEntity
+import com.example.data.local.MonthlySummaryEntity
 import com.example.data.local.SessionPreferences
 import com.example.data.local.SmtpLogEntity
 import com.example.data.local.StaffDirectoryEntity
 import com.example.data.local.StoredSession
+import com.example.data.model.AdminMessageReplyDto
+import com.example.data.model.AdminMessageThreadDto
 import com.example.data.model.AdminStaffApprovalRequest
 import com.example.data.model.ApiResponse
 import com.example.data.model.AttendanceListData
 import com.example.data.model.AttendanceMarkRequest
 import com.example.data.model.AttendanceRecordDto
+import com.example.data.model.AttendanceSummaryDto
 import com.example.data.model.AuthSession
 import com.example.data.model.GmailOtpActionRequest
 import com.example.data.model.HealthStatus
@@ -23,18 +29,27 @@ import com.example.data.model.LoginRequest
 import com.example.data.model.MapGmailRequest
 import com.example.data.model.OtpDispatchData
 import com.example.data.model.RegisterStaffRequest
+import com.example.data.model.ReplyAdminMessageRequest
+import com.example.data.model.SendAdminMessageRequest
 import com.example.data.model.SmtpLogDto
 import com.example.data.model.SmtpReceipt
 import com.example.data.model.SmtpTestRequest
 import com.example.data.model.StaffProfile
+import com.example.data.model.StaffTimeMappingRequest
 import com.example.data.remote.NetworkClient
 import com.example.data.remote.PttpApiService
+import com.example.location.GeoTagResult
 import com.squareup.moshi.JsonDataException
 import com.squareup.moshi.Types
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import retrofit2.Response
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.roundToInt
 
 sealed class RepoResult<out T> {
     data class Success<T>(
@@ -71,11 +86,31 @@ class AttendanceRepository(
                 checkInTime = it.checkInTime,
                 checkOutTime = it.checkOutTime,
                 status = it.status,
+                latitude = it.latitude,
+                longitude = it.longitude,
+                geoAddress = it.geoAddress,
+                faceVerified = it.faceVerified,
                 remarks = it.remarks,
                 checkInSource = it.checkInSource
             )
         }
     }
+
+    fun observeCachedMonthlySummary(month: String): Flow<AttendanceSummaryDto?> =
+        dao.observeMonthlySummary(month).map { entity ->
+            entity?.let {
+                AttendanceSummaryDto(
+                    month = it.month,
+                    totalDays = it.totalDays,
+                    presentDays = it.presentDays,
+                    lateDays = it.lateDays,
+                    onDutyDays = it.onDutyDays,
+                    halfDays = it.halfDays,
+                    absentDays = it.absentDays,
+                    attendancePercentage = it.attendancePercentage
+                )
+            }
+        }
 
     val cachedMyLeavesFlow: Flow<List<LeaveRequestDto>> = dao.observeLeaveRequests(false).map { list ->
         list.map { it.toDto() }
@@ -112,13 +147,52 @@ class AttendanceRepository(
                 fullName = it.fullName,
                 department = it.department,
                 designation = it.designation,
-                role = it.role
+                role = it.role,
+                shiftStartTime = it.shiftStartTime,
+                shiftEndTime = it.shiftEndTime
+            )
+        }
+    }
+
+    val cachedAdminMessagesFlow: Flow<List<AdminMessageThreadDto>> = combine(
+        dao.observeAdminMessages(),
+        dao.observeAdminReplies()
+    ) { messages, replies ->
+        val grouped = replies.groupBy { it.parentId }
+        messages.map { msg ->
+            AdminMessageThreadDto(
+                id = msg.id,
+                senderStaffId = msg.senderStaffId,
+                senderName = msg.senderName,
+                senderLoginId = msg.senderLoginId,
+                targetStaffId = msg.targetStaffId,
+                targetLoginId = msg.targetLoginId,
+                targetName = msg.targetName,
+                title = msg.title,
+                messageBody = msg.messageBody,
+                createdAt = msg.createdAt,
+                replies = grouped[msg.id].orEmpty().map { rep ->
+                    AdminMessageReplyDto(
+                        id = rep.id,
+                        parentId = rep.parentId,
+                        senderStaffId = rep.senderStaffId,
+                        senderLoginId = rep.senderLoginId,
+                        senderName = rep.senderName,
+                        senderRole = rep.senderRole,
+                        messageBody = rep.messageBody,
+                        createdAt = rep.createdAt
+                    )
+                }
             )
         }
     }
 
     suspend fun saveBaseUrl(url: String) {
         prefs.saveBaseUrl(url)
+    }
+
+    suspend fun setReminderEnabled(enabled: Boolean) {
+        prefs.setReminderEnabled(enabled)
     }
 
     suspend fun logout() {
@@ -162,6 +236,29 @@ class AttendanceRepository(
                 )
             )
         }
+    }
+
+    suspend fun updateStaffTimeMapping(
+        loginId: String,
+        shiftStartTime: String,
+        shiftEndTime: String
+    ): RepoResult<StaffProfile> {
+        val result = executeCall {
+            api.updateStaffTimeMapping(
+                StaffTimeMappingRequest(
+                    loginId = loginId.trim().uppercase(),
+                    shiftStartTime = shiftStartTime.trim(),
+                    shiftEndTime = shiftEndTime.trim()
+                )
+            )
+        }
+        if (result is RepoResult.Success) {
+            val current = prefs.getSessionSnapshot().staff
+            if (current != null && current.loginId.equals(result.data.loginId, ignoreCase = true)) {
+                prefs.saveStaffProfile(result.data)
+            }
+        }
+        return result
     }
 
     suspend fun requestGmailOtp(identifier: String, purpose: String = "LOGIN"): RepoResult<OtpDispatchData> {
@@ -234,27 +331,116 @@ class AttendanceRepository(
         }
     }
 
-    suspend fun markAttendance(action: String, remarks: String): RepoResult<AttendanceRecordDto> {
+    suspend fun markAttendance(
+        action: String,
+        remarks: String,
+        geoTag: GeoTagResult? = null,
+        faceVerified: Boolean = false,
+        faceConfidence: Float? = null
+    ): RepoResult<AttendanceRecordDto> {
         val deviceInfo = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
-        return executeCall {
+        val res = executeCall {
             api.markAttendance(
                 AttendanceMarkRequest(
                     action = action,
                     remarks = remarks.trim(),
-                    deviceInfo = deviceInfo
+                    deviceInfo = deviceInfo,
+                    latitude = geoTag?.latitude,
+                    longitude = geoTag?.longitude,
+                    geoAccuracyM = geoTag?.accuracyMeters,
+                    geoAddress = geoTag?.addressLabel,
+                    faceVerified = faceVerified,
+                    faceConfidence = faceConfidence
                 )
             )
         }
+        if (res is RepoResult.Success) {
+            val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+            prefs.markCheckedInDate(todayStr)
+        }
+        return res
     }
 
-    suspend fun fetchAttendance(month: String? = null): RepoResult<AttendanceListData> {
-        val result = executeCall { api.getAttendance(month) }
+    suspend fun fetchAttendance(
+        month: String? = null,
+        targetStaffId: Int? = null,
+        targetLoginId: String? = null
+    ): RepoResult<AttendanceListData> {
+        val result = executeCall { api.getAttendance(month, targetStaffId, targetLoginId) }
         if (result is RepoResult.Success) {
-            val entities = result.data.records.map { it.toEntity() }
-            dao.clearAttendance()
-            dao.upsertAttendance(entities)
+            result.data.staff?.let { syncedProfile ->
+                prefs.saveStaffProfile(syncedProfile)
+            }
+            if (result.data.today != null && !result.data.today.checkInTime.isNullOrBlank()) {
+                val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                prefs.markCheckedInDate(todayStr)
+            }
+
+            val targetMonth = result.data.summary.month.ifBlank {
+                month ?: SimpleDateFormat("yyyy-MM", Locale.US).format(Date())
+            }
+            val serverSummary = result.data.summary.let {
+                if (it.month.isBlank()) it.copy(month = targetMonth) else it
+            }
+            val effectiveSummary = if (serverSummary.totalDays == 0 && result.data.records.isNotEmpty()) {
+                computeSummaryFromRecords(targetMonth, result.data.records)
+            } else {
+                serverSummary
+            }
+
+            val isOwnProfile = targetStaffId == null || targetStaffId == result.data.staff?.id
+            if (isOwnProfile) {
+                if (effectiveSummary.month.isNotBlank()) {
+                    dao.upsertMonthlySummary(
+                        MonthlySummaryEntity(
+                            month = effectiveSummary.month,
+                            totalDays = effectiveSummary.totalDays,
+                            presentDays = effectiveSummary.presentDays,
+                            lateDays = effectiveSummary.lateDays,
+                            onDutyDays = effectiveSummary.onDutyDays,
+                            halfDays = effectiveSummary.halfDays,
+                            absentDays = effectiveSummary.absentDays,
+                            attendancePercentage = effectiveSummary.attendancePercentage,
+                            syncedAtMillis = System.currentTimeMillis()
+                        )
+                    )
+                }
+
+                val entities = result.data.records.map { it.toEntity() }
+                dao.clearAttendance()
+                dao.upsertAttendance(entities)
+            }
+            return RepoResult.Success(
+                data = result.data.copy(summary = effectiveSummary),
+                message = result.message,
+                smtpDispatched = result.smtpDispatched,
+                smtpReceipt = result.smtpReceipt
+            )
         }
         return result
+    }
+
+    fun computeSummaryFromRecords(month: String, records: List<AttendanceRecordDto>): AttendanceSummaryDto {
+        val scoped = records.filter { it.attendanceDate.startsWith(month) }
+        val source = if (scoped.isNotEmpty()) scoped else records
+        val total = source.size
+        val present = source.count { it.status.equals("PRESENT", ignoreCase = true) }
+        val late = source.count { it.status.equals("LATE", ignoreCase = true) }
+        val onDuty = source.count { it.status.equals("ON_DUTY", ignoreCase = true) }
+        val half = source.count { it.status.equals("HALF_DAY", ignoreCase = true) }
+        val absent = source.count { it.status.equals("ABSENT", ignoreCase = true) }
+        val effective = present + late + onDuty + (half * 0.5)
+        val pct = if (total > 0) ((effective / total) * 1000.0).roundToInt() / 10.0 else 0.0
+        return AttendanceSummaryDto(
+            month = month,
+            totalDays = total,
+            presentDays = present,
+            lateDays = late,
+            onDutyDays = onDuty,
+            halfDays = half,
+            absentDays = absent,
+            attendancePercentage = pct
+        )
     }
 
     suspend fun fetchLeaveRequests(): RepoResult<LeaveListData> {
@@ -308,6 +494,21 @@ class AttendanceRepository(
         return result
     }
 
+    suspend fun cancelLeaveRequest(requestId: Int): RepoResult<LeaveListData> {
+        val result = executeCall {
+            api.submitOrReviewLeave(
+                LeaveActionRequest(
+                    action = "cancel",
+                    requestId = requestId
+                )
+            )
+        }
+        if (result is RepoResult.Success) {
+            syncLeaveCache(result.data)
+        }
+        return result
+    }
+
     suspend fun fetchStaffDirectory(): RepoResult<List<StaffProfile>> {
         val result = executeCall { api.getStaffDirectory() }
         if (result is RepoResult.Success) {
@@ -322,7 +523,9 @@ class AttendanceRepository(
                         fullName = it.fullName,
                         department = it.department,
                         designation = it.designation,
-                        role = it.role
+                        role = it.role,
+                        shiftStartTime = it.shiftStartTime,
+                        shiftEndTime = it.shiftEndTime
                     )
                 }
             )
@@ -342,6 +545,52 @@ class AttendanceRepository(
         val result = executeCall { api.sendTestSmtp(SmtpTestRequest()) }
         if (result is RepoResult.Success) {
             syncSmtpCache(result.data)
+        }
+        return result
+    }
+
+    suspend fun fetchAdminMessages(): RepoResult<List<AdminMessageThreadDto>> {
+        val result = executeCall { api.getAdminMessages() }
+        if (result is RepoResult.Success) {
+            syncAdminMessagesCache(result.data)
+        }
+        return result
+    }
+
+    suspend fun sendAdminMessage(
+        targetLoginId: String?,
+        title: String,
+        messageBody: String
+    ): RepoResult<List<AdminMessageThreadDto>> {
+        val result = executeCall {
+            api.sendAdminMessage(
+                SendAdminMessageRequest(
+                    targetLoginId = targetLoginId?.trim()?.uppercase()?.takeIf { it.isNotBlank() },
+                    title = title.trim(),
+                    messageBody = messageBody.trim()
+                )
+            )
+        }
+        if (result is RepoResult.Success) {
+            syncAdminMessagesCache(result.data)
+        }
+        return result
+    }
+
+    suspend fun replyToAdminMessage(
+        parentId: Int,
+        messageBody: String
+    ): RepoResult<List<AdminMessageThreadDto>> {
+        val result = executeCall {
+            api.replyToAdminMessage(
+                ReplyAdminMessageRequest(
+                    parentId = parentId,
+                    messageBody = messageBody.trim()
+                )
+            )
+        }
+        if (result is RepoResult.Success) {
+            syncAdminMessagesCache(result.data)
         }
         return result
     }
@@ -373,6 +622,43 @@ class AttendanceRepository(
         )
     }
 
+    private suspend fun syncAdminMessagesCache(threads: List<AdminMessageThreadDto>) {
+        dao.clearAdminReplies()
+        dao.clearAdminMessages()
+        dao.upsertAdminMessages(
+            threads.map {
+                AdminMessageEntity(
+                    id = it.id,
+                    senderStaffId = it.senderStaffId,
+                    senderName = it.senderName,
+                    senderLoginId = it.senderLoginId,
+                    targetStaffId = it.targetStaffId,
+                    targetLoginId = it.targetLoginId,
+                    targetName = it.targetName,
+                    title = it.title,
+                    messageBody = it.messageBody,
+                    createdAt = it.createdAt
+                )
+            }
+        )
+        dao.upsertAdminReplies(
+            threads.flatMap { t ->
+                t.replies.map { r ->
+                    AdminReplyEntity(
+                        id = r.id,
+                        parentId = r.parentId,
+                        senderStaffId = r.senderStaffId,
+                        senderLoginId = r.senderLoginId,
+                        senderName = r.senderName,
+                        senderRole = r.senderRole,
+                        messageBody = r.messageBody,
+                        createdAt = r.createdAt
+                    )
+                }
+            }
+        )
+    }
+
     private suspend fun <T> executeCall(call: suspend () -> Response<ApiResponse<T>>): RepoResult<T> {
         return try {
             val response = call()
@@ -393,7 +679,7 @@ class AttendanceRepository(
                 val parsedMessage = parseErrorMessage(errorText)
                 val isHtmlOr404 = response.code() == 404 || errorText.contains("<html", ignoreCase = true)
                 val msg = when {
-                    isHtmlOr404 -> "PHP API endpoint not found (HTTP ${response.code()}). Deploy the included backend_php/ scripts to your server."
+                    isHtmlOr404 -> "College server endpoint unavailable (HTTP ${response.code()}). Please try again or contact Admin."
                     parsedMessage != null -> parsedMessage
                     else -> "Server returned HTTP ${response.code()} (${response.message()})."
                 }
@@ -405,12 +691,12 @@ class AttendanceRepository(
             }
         } catch (e: JsonDataException) {
             RepoResult.Error(
-                message = "Unexpected response from server (expected PHP JSON API). Ensure backend_php/ is deployed cleanly.",
+                message = "Unexpected response from college server. Please try again later.",
                 isBackendMissing = true
             )
         } catch (e: IOException) {
             RepoResult.Error(
-                message = "Network error reaching server: ${e.localizedMessage ?: "Check internet connection or API URL."}",
+                message = "Network error reaching server: ${e.localizedMessage ?: "Check internet connection."}",
                 isBackendMissing = false
             )
         } catch (e: Exception) {
@@ -443,6 +729,10 @@ private fun AttendanceRecordDto.toEntity() = AttendanceEntity(
     checkInTime = checkInTime,
     checkOutTime = checkOutTime,
     status = status,
+    latitude = latitude,
+    longitude = longitude,
+    geoAddress = geoAddress,
+    faceVerified = faceVerified,
     remarks = remarks,
     checkInSource = checkInSource
 )

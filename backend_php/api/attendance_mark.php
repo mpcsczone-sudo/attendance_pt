@@ -10,6 +10,13 @@ $body = read_json_body();
 $action = strtoupper(trim((string)($body['action'] ?? 'CHECK_IN')));
 $remarks = trim((string)($body['remarks'] ?? ''));
 $deviceInfo = trim((string)($body['device_info'] ?? 'Android App'));
+$latitude = isset($body['latitude']) && is_numeric($body['latitude']) ? (float)$body['latitude'] : null;
+$longitude = isset($body['longitude']) && is_numeric($body['longitude']) ? (float)$body['longitude'] : null;
+$geoAccuracy = isset($body['geo_accuracy_m']) && is_numeric($body['geo_accuracy_m']) ? (float)$body['geo_accuracy_m'] : null;
+$geoAddress = trim((string)($body['geo_address'] ?? ''));
+$faceVerified = !empty($body['face_verified']) ? 1 : 0;
+$faceConfidence = isset($body['face_confidence']) && is_numeric($body['face_confidence']) ? (float)$body['face_confidence'] : null;
+
 $today = date('Y-m-d');
 $nowTime = date('H:i:s');
 $staffId = (int)$staff['id'];
@@ -23,15 +30,31 @@ if ($action === 'CHECK_IN' || $action === 'ON_DUTY') {
         json_error("Attendance already checked in today at {$existing['check_in_time']}.", 409);
     }
 
-    $cutoff = (string)($CONFIG['late_cutoff_time'] ?? '09:45:00');
-    $status = $action === 'ON_DUTY' ? 'ON_DUTY' : ($nowTime > $cutoff ? 'LATE' : 'PRESENT');
+    // Staff-wise time mapping + 15 min grace window
+    $staffShiftStart = (string)($staff['shift_start_time'] ?? ($CONFIG['late_cutoff_time'] ?? '09:30:00'));
+    $cutoffTs = strtotime($today . ' ' . $staffShiftStart . ' +15 minutes');
+    $nowTs = strtotime($today . ' ' . $nowTime);
+    $status = $action === 'ON_DUTY' ? 'ON_DUTY' : ($nowTs > $cutoffTs ? 'LATE' : 'PRESENT');
 
     $ins = $pdo->prepare(
-        'INSERT INTO attendance_records
-         (staff_id, attendance_date, check_in_time, status, remarks, device_info, check_in_source)
-         VALUES (?, ?, ?, ?, ?, ?, "ANDROID_APP")'
+        "INSERT INTO attendance_records
+         (staff_id, attendance_date, check_in_time, status, latitude, longitude, geo_accuracy_m, geo_address, face_verified, face_confidence, remarks, device_info, check_in_source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'FACE_GEO_APP')"
     );
-    $ins->execute([$staffId, $today, $nowTime, $status, $remarks, $deviceInfo]);
+    $ins->execute([
+        $staffId,
+        $today,
+        $nowTime,
+        $status,
+        $latitude,
+        $longitude,
+        $geoAccuracy,
+        $geoAddress !== '' ? $geoAddress : null,
+        $faceVerified,
+        $faceConfidence,
+        $remarks,
+        $deviceInfo,
+    ]);
 } elseif ($action === 'CHECK_OUT') {
     if (!$existing || empty($existing['check_in_time'])) {
         json_error('Please check in before checking out.', 400);
@@ -62,13 +85,20 @@ $fetchStmt->execute([$staffId, $today]);
 $record = $fetchStmt->fetch();
 
 $eventLabel = $action === 'CHECK_OUT' ? 'CHECK_OUT' : 'CHECK_IN';
+$geoLine = ($record['latitude'] !== null && $record['longitude'] !== null)
+    ? sprintf('%.5f, %.5f (%s)', (float)$record['latitude'], (float)$record['longitude'], $record['geo_address'] ?: 'GPS Tagged')
+    : 'Not Captured';
+$faceLine = ((int)$record['face_verified'] === 1) ? 'Live Face Verified' : 'Standard';
+
 $subject = "[PTTP Attendance] {$staff['login_id']} {$eventLabel} ({$record['status']}) — {$today}";
-$html = "<h3>Pt. T. P. Shukla College — Attendance Notification</h3>"
+$html = "<h3>Pt. T. P. Shukla College — Geo & Face Attendance</h3>"
       . "<p><strong>Staff:</strong> " . htmlspecialchars((string)$staff['full_name']) . " ({$staff['login_id']})</p>"
       . "<p><strong>Department:</strong> " . htmlspecialchars((string)$staff['department']) . "</p>"
-      . "<p><strong>Date:</strong> {$today}</p>"
-      . "<p><strong>Status:</strong> {$record['status']}</p>"
+      . "<p><strong>Mapped Shift:</strong> " . substr((string)$staff['shift_start_time'], 0, 5) . " - " . substr((string)$staff['shift_end_time'], 0, 5) . "</p>"
+      . "<p><strong>Date:</strong> {$today} | <strong>Status:</strong> {$record['status']}</p>"
       . "<p><strong>Check-In:</strong> " . ($record['check_in_time'] ?? '--') . " | <strong>Check-Out:</strong> " . ($record['check_out_time'] ?? '--') . "</p>"
+      . "<p><strong>Face Verification:</strong> {$faceLine}</p>"
+      . "<p><strong>Geo-Tag Location:</strong> " . htmlspecialchars($geoLine) . "</p>"
       . ($remarks !== '' ? "<p><strong>Remarks:</strong> " . htmlspecialchars($remarks) . "</p>" : '');
 
 $cc = $CONFIG['smtp']['hod_cc_email'] ?? null;
@@ -86,11 +116,15 @@ json_success(
         'check_in_time' => $record['check_in_time'],
         'check_out_time' => $record['check_out_time'],
         'status' => $record['status'],
+        'latitude' => $record['latitude'] !== null ? (float)$record['latitude'] : null,
+        'longitude' => $record['longitude'] !== null ? (float)$record['longitude'] : null,
+        'geo_address' => $record['geo_address'],
+        'face_verified' => (bool)$record['face_verified'],
         'remarks' => $record['remarks'],
         'check_in_source' => $record['check_in_source'],
     ],
     $receipt['status'] === 'SENT'
-        ? "{$eventLabel} recorded & SMTP email sent to {$staff['gmail_id']}."
+        ? "{$eventLabel} recorded with Geo & Face verification; SMTP sent to {$staff['gmail_id']}."
         : "{$eventLabel} recorded in MySQL (SMTP pending: {$receipt['error_message']}).",
     $receipt['status'] === 'SENT',
     $receipt

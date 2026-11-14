@@ -1,5 +1,10 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,30 +20,25 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AlternateEmail
-import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.EventAvailable
-import androidx.compose.material.icons.filled.Login
+import androidx.compose.material.icons.filled.FaceRetouchingNatural
 import androidx.compose.material.icons.filled.Logout
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.material.icons.filled.WorkHistory
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,15 +49,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.example.data.model.AttendanceRecordDto
+import androidx.core.content.ContextCompat
 import com.example.ui.components.FeedbackBanner
-import com.example.ui.components.SmtpReceiptCard
+import com.example.ui.components.LiveFaceDetectorDialog
 import com.example.ui.components.StatusPill
-import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.BlueContainer
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.EmeraldContainer
@@ -72,19 +72,49 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AttendanceHomeScreen(
     uiState: DashboardUiState,
-    onMarkAttendance: (action: String, remarks: String) -> Unit,
+    onCaptureGeo: () -> Unit,
+    onMarkAttendance: (action: String, remarks: String, faceVerified: Boolean, faceConfidence: Float?) -> Unit,
     onRefresh: () -> Unit,
     onOpenServerSetup: () -> Unit,
     onDismissFeedback: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var currentTime by remember { mutableStateOf(formatNow("HH:mm:ss")) }
     var currentDateLabel by remember { mutableStateOf(formatNow("EEEE, dd MMM yyyy")) }
     var remarks by rememberSaveable { mutableStateOf("") }
-    var showDeptRegister by rememberSaveable { mutableStateOf(false) }
+
+    var pendingFaceAction by remember { mutableStateOf<String?>(null) }
+    var showFaceDetectorDialog by remember { mutableStateOf(false) }
+
+    val hasLocationPermission = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_COARSE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val camGranted = grants[Manifest.permission.CAMERA] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val locGranted = grants[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+            grants[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
+            hasLocationPermission
+
+        if (locGranted) {
+            onCaptureGeo()
+        }
+        if (camGranted && pendingFaceAction != null) {
+            showFaceDetectorDialog = true
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -94,18 +124,51 @@ fun AttendanceHomeScreen(
         }
     }
 
+    LaunchedEffect(hasLocationPermission) {
+        if (hasLocationPermission && uiState.capturedGeoTag == null) {
+            onCaptureGeo()
+        }
+    }
+
+    fun launchFaceAndGeoVerification(action: String) {
+        val needed = mutableListOf<String>()
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.CAMERA)
+        }
+        if (!hasLocationPermission) {
+            needed.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            needed.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        pendingFaceAction = action
+        if (needed.isEmpty()) {
+            onCaptureGeo()
+            showFaceDetectorDialog = true
+        } else {
+            permissionLauncher.launch(needed.toTypedArray())
+        }
+    }
+
     val staff = uiState.staff
     val today = uiState.todayRecord
-    val isHodOrAdmin = staff?.role == "HOD" || staff?.role == "ADMIN"
 
-    Box(
-        modifier = modifier.fillMaxSize(),
-        contentAlignment = Alignment.TopCenter
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier
+            .fillMaxSize()
+            .testTag("attendance_pull_refresh")
     ) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .widthIn(max = 720.dp),
+                .widthIn(max = 720.dp)
+                .align(Alignment.TopCenter),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -119,97 +182,7 @@ fun AttendanceHomeScreen(
                 )
             }
 
-            item {
-                SmtpReceiptCard(receipt = uiState.lastSmtpReceipt)
-            }
-
-            // Staff Login ID <-> Gmail Mapping Identity Card
-            if (staff != null) {
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = PureWhite),
-                        border = BorderStroke(1.dp, SubtleBorder),
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = staff.fullName,
-                                        style = MaterialTheme.typography.titleLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = "${staff.designation} • ${staff.department}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                StatusPill(label = staff.role)
-                            }
-
-                            Surface(
-                                color = SoftWhiteTint,
-                                border = BorderStroke(1.dp, SubtleBorder),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Badge,
-                                        contentDescription = "Login ID",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = staff.loginId,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontFamily = JetBrainsMonoFontFamily,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text("↔", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Icon(
-                                        imageVector = Icons.Filled.AlternateEmail,
-                                        contentDescription = "Mapped Gmail",
-                                        tint = if (staff.gmailVerified) EmeraldSuccess else AmberWarning,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Text(
-                                        text = staff.gmailId,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    if (staff.gmailVerified) {
-                                        Icon(
-                                            imageVector = Icons.Filled.VerifiedUser,
-                                            contentDescription = "Verified Gmail",
-                                            tint = EmeraldSuccess,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Crisp White Attendance Shift Card
+            // Only the Live Face & Geo-Tag Attendance Check-In / Check-Out Section
             item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = PureWhite),
@@ -260,6 +233,48 @@ fun AttendanceHomeScreen(
                             }
                         }
 
+                        if (staff != null) {
+                            Surface(
+                                color = BlueContainer.copy(alpha = 0.55f),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Schedule,
+                                        contentDescription = "Shift Schedule",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "${staff.loginId} • Shift ${staff.shiftStartTime}–${staff.shiftEndTime}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontFamily = JetBrainsMonoFontFamily,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Filled.NotificationsActive,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Text(
+                                        text = "10m: ${uiState.nextReminderLabel}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+
                         if (today != null) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -275,6 +290,25 @@ fun AttendanceHomeScreen(
                                     value = today.checkOutTime ?: "Active",
                                     modifier = Modifier.weight(1f)
                                 )
+                            }
+                            if (!today.geoAddress.isNullOrBlank() || today.faceVerified) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (today.faceVerified) {
+                                        StatusPill(label = "FACE VERIFIED")
+                                    }
+                                    if (!today.geoAddress.isNullOrBlank()) {
+                                        Text(
+                                            text = "Geo: ${today.geoAddress}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -297,11 +331,12 @@ fun AttendanceHomeScreen(
 
                             Button(
                                 onClick = {
-                                    onMarkAttendance(
-                                        if (canCheckOut) "CHECK_OUT" else "CHECK_IN",
-                                        remarks
-                                    )
-                                    remarks = ""
+                                    if (canCheckOut) {
+                                        onMarkAttendance("CHECK_OUT", remarks, false, null)
+                                        remarks = ""
+                                    } else {
+                                        launchFaceAndGeoVerification("CHECK_IN")
+                                    }
                                 },
                                 enabled = !uiState.isSubmittingAction && (canCheckIn || canCheckOut),
                                 colors = ButtonDefaults.buttonColors(
@@ -322,7 +357,7 @@ fun AttendanceHomeScreen(
                                     )
                                 } else {
                                     Icon(
-                                        imageVector = if (canCheckOut) Icons.Filled.Logout else Icons.Filled.Login,
+                                        imageVector = if (canCheckOut) Icons.Filled.Logout else Icons.Filled.FaceRetouchingNatural,
                                         contentDescription = null,
                                         modifier = Modifier.size(18.dp)
                                     )
@@ -330,7 +365,7 @@ fun AttendanceHomeScreen(
                                     Text(
                                         text = when {
                                             canCheckOut -> "Check Out & Email"
-                                            canCheckIn -> "Check In & Email"
+                                            canCheckIn -> "Face & Geo Check-In"
                                             else -> "Checked Out"
                                         },
                                         fontWeight = FontWeight.Bold
@@ -340,10 +375,7 @@ fun AttendanceHomeScreen(
 
                             if (canCheckIn) {
                                 OutlinedButton(
-                                    onClick = {
-                                        onMarkAttendance("ON_DUTY", remarks.ifBlank { "Official College Duty" })
-                                        remarks = ""
-                                    },
+                                    onClick = { launchFaceAndGeoVerification("ON_DUTY") },
                                     enabled = !uiState.isSubmittingAction,
                                     shape = RoundedCornerShape(14.dp),
                                     modifier = Modifier
@@ -356,136 +388,36 @@ fun AttendanceHomeScreen(
                         }
 
                         Text(
-                            text = "Every check-in/out logs to MySQL and dispatches a real-time SMTP receipt to your mapped Gmail.",
+                            text = "Check-In opens Live Face Detector + GPS Geo-Tag, marks today P on your Dashboard calendar, and emails a receipt.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
-
-            // Monthly Summary Metrics
-            item {
-                val summary = uiState.summary
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (summary.month.isNotBlank()) "Monthly Summary (${summary.month})" else "Monthly Summary",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        TextButton(
-                            onClick = onRefresh,
-                            enabled = !uiState.isRefreshing,
-                            modifier = Modifier.testTag("refresh_attendance_button")
-                        ) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh", modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(if (uiState.isRefreshing) "Syncing..." else "Sync")
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        SummaryStatTile(
-                            label = "Present",
-                            value = "${summary.presentDays}",
-                            accent = EmeraldSuccess,
-                            modifier = Modifier.weight(1f)
-                        )
-                        SummaryStatTile(
-                            label = "Late",
-                            value = "${summary.lateDays}",
-                            accent = AmberWarning,
-                            modifier = Modifier.weight(1f)
-                        )
-                        SummaryStatTile(
-                            label = "On-Duty",
-                            value = "${summary.onDutyDays}",
-                            accent = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f)
-                        )
-                        SummaryStatTile(
-                            label = "Rate",
-                            value = "${summary.attendancePercentage.toInt()}%",
-                            accent = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (showDeptRegister && isHodOrAdmin) "Today's Department Register" else "Recent Attendance Ledger",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    if (isHodOrAdmin) {
-                        TextButton(onClick = { showDeptRegister = !showDeptRegister }) {
-                            Text(if (showDeptRegister) "View My Logs" else "Dept Register (${uiState.departmentRegister.size})")
-                        }
-                    }
-                }
-            }
-
-            val displayedList = if (showDeptRegister && isHodOrAdmin) {
-                uiState.departmentRegister
-            } else {
-                uiState.attendanceHistory
-            }
-
-            if (displayedList.isEmpty()) {
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = SoftWhiteTint),
-                        border = BorderStroke(1.dp, SubtleBorder),
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(28.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.EventAvailable,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(36.dp)
-                            )
-                            Text(
-                                text = "No attendance entries synced yet",
-                                style = MaterialTheme.typography.titleSmall
-                            )
-                            Text(
-                                text = "Tap Check In above to record today's attendance in MySQL and receive an SMTP confirmation in your mapped Gmail.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            } else {
-                items(displayedList, key = { "${it.id}_${it.attendanceDate}_${it.staffId}" }) { record ->
-                    AttendanceRecordRow(
-                        record = record,
-                        showStaffIdentity = showDeptRegister && isHodOrAdmin
-                    )
-                }
-            }
         }
+    }
+
+    if (showFaceDetectorDialog && pendingFaceAction != null) {
+        val actionToRun = pendingFaceAction!!
+        LiveFaceDetectorDialog(
+            actionLabel = if (actionToRun == "ON_DUTY") "Confirm Face & On-Duty" else "Confirm Face & Check-In",
+            geoTag = uiState.capturedGeoTag,
+            isCapturingGeo = uiState.isCapturingGeo,
+            geoPermissionGranted = hasLocationPermission,
+            onRetryGeo = onCaptureGeo,
+            onConfirmCheckIn = { faceVerified, confidence ->
+                showFaceDetectorDialog = false
+                pendingFaceAction = null
+                val note = if (actionToRun == "ON_DUTY") remarks.ifBlank { "Official College Duty" } else remarks
+                onMarkAttendance(actionToRun, note, faceVerified, confidence)
+                remarks = ""
+            },
+            onDismiss = {
+                showFaceDetectorDialog = false
+                pendingFaceAction = null
+            }
+        )
     }
 }
 
@@ -513,97 +445,6 @@ private fun TimeChip(
                 fontFamily = JetBrainsMonoFontFamily,
                 color = MaterialTheme.colorScheme.onSurface
             )
-        }
-    }
-}
-
-@Composable
-private fun SummaryStatTile(
-    label: String,
-    value: String,
-    accent: Color,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = PureWhite),
-        border = BorderStroke(1.dp, SubtleBorder),
-        shape = RoundedCornerShape(16.dp),
-        modifier = modifier
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                text = value,
-                style = MaterialTheme.typography.headlineSmall,
-                fontFamily = JetBrainsMonoFontFamily,
-                color = accent,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
-        }
-    }
-}
-
-@Composable
-private fun AttendanceRecordRow(
-    record: AttendanceRecordDto,
-    showStaffIdentity: Boolean
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = PureWhite),
-        border = BorderStroke(1.dp, SubtleBorder),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Surface(
-                color = BlueContainer,
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.size(44.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = if (record.checkOutTime != null) Icons.Filled.CheckCircle else Icons.Filled.WorkHistory,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = if (showStaffIdentity) "${record.fullName} (${record.loginId})" else record.attendanceDate,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "In: ${record.checkInTime ?: "--"}  •  Out: ${record.checkOutTime ?: "--"}",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = JetBrainsMonoFontFamily,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (record.remarks.isNotBlank()) {
-                    Text(
-                        text = record.remarks,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-            StatusPill(label = record.status)
         }
     }
 }

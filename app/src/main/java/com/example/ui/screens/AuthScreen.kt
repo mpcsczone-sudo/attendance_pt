@@ -28,8 +28,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Business
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MarkEmailUnread
@@ -57,11 +57,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,16 +76,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.example.R
-import com.example.ui.components.FeedbackBanner
-import com.example.ui.components.ServerSetupBottomSheet
-import com.example.ui.components.SmtpReceiptCard
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.AmberContainer
 import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.BlueContainer
+import com.example.ui.theme.CrimsonContainer
+import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.EmeraldContainer
 import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.JetBrainsMonoFontFamily
@@ -100,7 +103,6 @@ fun AuthScreen(
     uiState: AuthUiState,
     viewModel: AuthViewModel
 ) {
-    var showServerSheet by remember { mutableStateOf(false) }
 
     var loginIdentifier by rememberSaveable { mutableStateOf("") }
     var loginPassword by rememberSaveable { mutableStateOf("") }
@@ -152,80 +154,34 @@ fun AuthScreen(
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.weight(1f)
+                            Surface(
+                                color = BlueContainer,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.size(44.dp)
                             ) {
-                                Surface(
-                                    color = BlueContainer,
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.size(44.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Filled.School,
-                                            contentDescription = "College Crest",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-                                Column {
-                                    Text(
-                                        text = stringResource(R.string.college_full_name),
-                                        style = MaterialTheme.typography.titleLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = "Staff Attendance & Gmail Portal",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Filled.School,
+                                        contentDescription = "College Crest",
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             }
-
-                            Surface(
-                                color = if (uiState.healthStatus?.mysqlConnected == true) EmeraldContainer else SoftWhiteTint,
-                                border = BorderStroke(1.dp, SubtleBorder),
-                                shape = RoundedCornerShape(50),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
-                                    .clickable { showServerSheet = true }
-                                    .testTag("server_status_pill")
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (uiState.healthStatus?.mysqlConnected == true) {
-                                            Icons.Filled.CloudDone
-                                        } else {
-                                            Icons.Filled.CloudQueue
-                                        },
-                                        contentDescription = "Server Status",
-                                        tint = if (uiState.healthStatus?.mysqlConnected == true) {
-                                            EmeraldSuccess
-                                        } else {
-                                            MaterialTheme.colorScheme.primary
-                                        },
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(5.dp))
-                                    Text(
-                                        text = if (uiState.healthStatus?.mysqlConnected == true) "Online" else "Server",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = if (uiState.healthStatus?.mysqlConnected == true) {
-                                            EmeraldSuccess
-                                        } else {
-                                            MaterialTheme.colorScheme.primary
-                                        }
-                                    )
-                                }
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.college_full_name),
+                                    style = MaterialTheme.typography.titleLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Staff Attendance",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
 
@@ -255,7 +211,7 @@ fun AuthScreen(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         AuthModeButton(
-                            title = "Gmail Mapping Login",
+                            title = "Login",
                             selected = uiState.selectedTab == AuthModeTab.LOGIN,
                             onClick = { viewModel.selectTab(AuthModeTab.LOGIN) },
                             modifier = Modifier
@@ -263,7 +219,7 @@ fun AuthScreen(
                                 .testTag("tab_gmail_login")
                         )
                         AuthModeButton(
-                            title = "Registration (Gmail)",
+                            title = "Registration",
                             selected = uiState.selectedTab == AuthModeTab.REGISTER,
                             onClick = { viewModel.selectTab(AuthModeTab.REGISTER) },
                             modifier = Modifier
@@ -272,16 +228,6 @@ fun AuthScreen(
                         )
                     }
                 }
-
-                FeedbackBanner(
-                    bannerMessage = uiState.infoMessage,
-                    errorMessage = uiState.errorMessage,
-                    isBackendMissing = uiState.isBackendMissing,
-                    onOpenServerSetup = { showServerSheet = true },
-                    onDismiss = { viewModel.clearMessages() }
-                )
-
-                SmtpReceiptCard(receipt = uiState.smtpReceipt)
 
                 when (uiState.selectedTab) {
                     AuthModeTab.LOGIN -> {
@@ -297,7 +243,7 @@ fun AuthScreen(
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 Text(
-                                    text = "Gmail Mapping Login",
+                                    text = "Login",
                                     style = MaterialTheme.typography.titleLarge
                                 )
                                 Text(
@@ -309,7 +255,7 @@ fun AuthScreen(
                                 OutlinedTextField(
                                     value = loginIdentifier,
                                     onValueChange = { loginIdentifier = it },
-                                    label = { Text("Mapped Gmail ID or Login ID") },
+                                    label = { Text("Gmail ID or Login ID") },
                                     leadingIcon = { Icon(Icons.Filled.AlternateEmail, contentDescription = null) },
                                     singleLine = true,
                                     enabled = uiState.otpDispatchData == null,
@@ -355,7 +301,7 @@ fun AuthScreen(
                                                 strokeWidth = 2.dp
                                             )
                                         } else {
-                                            Text("Login with Gmail Mapping")
+                                            Text("Login")
                                         }
                                     }
 
@@ -367,7 +313,7 @@ fun AuthScreen(
                                     ) {
                                         Icon(Icons.Filled.MarkEmailUnread, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Or Login via Gmail SMTP OTP")
+                                        Text("Login OTP Mail ID")
                                     }
                                 } else {
                                     if (uiState.otpDispatchData == null) {
@@ -389,7 +335,7 @@ fun AuthScreen(
                                             } else {
                                                 Icon(Icons.Filled.MarkEmailUnread, contentDescription = null)
                                                 Spacer(modifier = Modifier.width(8.dp))
-                                                Text("Send 6-Digit Gmail OTP")
+                                                Text("Send OTP")
                                             }
                                         }
                                     } else {
@@ -489,7 +435,7 @@ fun AuthScreen(
                                     )
                                     Text(
                                         text = "${pending.fullName} (${pending.loginId})\nMapped Gmail: ${pending.gmailId}\n\n" +
-                                            "Your registration is saved in MySQL. Once the College Admin approves your account, you will receive an SMTP confirmation on Gmail and can log in.",
+                                            "Your registration has been submitted. Once the College Admin approves your account, you will receive an email confirmation on Gmail and can log in.",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -518,7 +464,7 @@ fun AuthScreen(
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     Text(
-                                        text = "New Staff Registration via Gmail",
+                                        text = "New Staff Registration",
                                         style = MaterialTheme.typography.titleLarge
                                     )
                                     Text(
@@ -530,7 +476,7 @@ fun AuthScreen(
                                     OutlinedTextField(
                                         value = regGmailId,
                                         onValueChange = { regGmailId = it },
-                                        label = { Text("Gmail ID (for Mapping & SMTP Alerts)") },
+                                        label = { Text("Gmail ID") },
                                         leadingIcon = { Icon(Icons.Filled.AlternateEmail, contentDescription = null) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                                         singleLine = true,
@@ -542,7 +488,7 @@ fun AuthScreen(
                                     OutlinedTextField(
                                         value = regLoginId,
                                         onValueChange = { regLoginId = it },
-                                        label = { Text("College Login ID (e.g. PTTP-FAC-104)") },
+                                        label = { Text("College Login ID") },
                                         leadingIcon = { Icon(Icons.Filled.Badge, contentDescription = null) },
                                         singleLine = true,
                                         modifier = Modifier
@@ -647,7 +593,7 @@ fun AuthScreen(
                                                 strokeWidth = 2.dp
                                             )
                                         } else {
-                                            Text("Register & Request Admin Approval")
+                                            Text("Register")
                                         }
                                     }
                                 }
@@ -656,31 +602,82 @@ fun AuthScreen(
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    TextButton(
-                        onClick = { showServerSheet = true },
-                        modifier = Modifier.testTag("configure_php_server_button")
-                    ) {
-                        Text("PHP & MySQL Server: ${uiState.currentBaseUrl}")
-                    }
-                }
             }
         }
     }
 
-    if (showServerSheet) {
-        ServerSetupBottomSheet(
-            currentBaseUrl = uiState.currentBaseUrl,
-            healthStatus = uiState.healthStatus,
-            healthError = uiState.healthError,
-            isChecking = uiState.isCheckingHealth,
-            onCheckHealth = { viewModel.checkServerHealth() },
-            onSaveBaseUrl = { viewModel.updateBaseUrl(it) },
-            onDismiss = { showServerSheet = false }
-        )
+    val modalMessage = uiState.errorMessage?.takeIf { it.isNotBlank() }
+        ?: uiState.infoMessage?.takeIf { it.isNotBlank() }
+    val isErrorModal = !uiState.errorMessage.isNullOrBlank()
+
+    LaunchedEffect(uiState.infoMessage, uiState.errorMessage) {
+        if (!uiState.infoMessage.isNullOrBlank() || !uiState.errorMessage.isNullOrBlank()) {
+            delay(2_200L)
+            viewModel.clearMessages()
+        }
+    }
+
+    if (modalMessage != null) {
+        Dialog(onDismissRequest = { viewModel.clearMessages() }) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = PureWhite),
+                border = BorderStroke(
+                    1.dp,
+                    if (isErrorModal) CrimsonError.copy(alpha = 0.35f) else EmeraldSuccess.copy(alpha = 0.35f)
+                ),
+                shape = RoundedCornerShape(22.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("auth_message_modal")
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Surface(
+                        color = if (isErrorModal) CrimsonContainer else EmeraldContainer,
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier.size(50.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isErrorModal) Icons.Filled.ErrorOutline else Icons.Filled.CheckCircle,
+                                contentDescription = if (isErrorModal) "Notice" else "Success",
+                                tint = if (isErrorModal) CrimsonError else EmeraldSuccess,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = if (isErrorModal) "Login Notice" else "Success",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isErrorModal) CrimsonError else EmeraldSuccess
+                    )
+                    Text(
+                        text = modalMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "Auto-closing in 2s...",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = { viewModel.clearMessages() },
+                        modifier = Modifier.testTag("auth_message_modal_close")
+                    ) {
+                        Text("OK")
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -20,6 +20,15 @@ interface AttendanceDao {
     @Query("DELETE FROM cached_attendance")
     suspend fun clearAttendance()
 
+    @Query("SELECT * FROM cached_monthly_summary WHERE month = :month LIMIT 1")
+    fun observeMonthlySummary(month: String): Flow<MonthlySummaryEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMonthlySummary(summary: MonthlySummaryEntity)
+
+    @Query("DELETE FROM cached_monthly_summary")
+    suspend fun clearMonthlySummary()
+
     @Query("SELECT * FROM cached_leave_requests WHERE isApprovalQueue = :isQueue ORDER BY id DESC")
     fun observeLeaveRequests(isQueue: Boolean): Flow<List<LeaveRequestEntity>>
 
@@ -47,22 +56,46 @@ interface AttendanceDao {
     @Query("DELETE FROM cached_staff_directory")
     suspend fun clearStaffDirectory()
 
+    @Query("SELECT * FROM cached_admin_messages ORDER BY id DESC")
+    fun observeAdminMessages(): Flow<List<AdminMessageEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAdminMessages(items: List<AdminMessageEntity>)
+
+    @Query("DELETE FROM cached_admin_messages")
+    suspend fun clearAdminMessages()
+
+    @Query("SELECT * FROM cached_admin_replies ORDER BY id ASC")
+    fun observeAdminReplies(): Flow<List<AdminReplyEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAdminReplies(items: List<AdminReplyEntity>)
+
+    @Query("DELETE FROM cached_admin_replies")
+    suspend fun clearAdminReplies()
+
     suspend fun clearAll() {
         clearAttendance()
+        clearMonthlySummary()
         clearLeaveRequests()
         clearSmtpLogs()
         clearStaffDirectory()
+        clearAdminMessages()
+        clearAdminReplies()
     }
 }
 
 @Database(
     entities = [
         AttendanceEntity::class,
+        MonthlySummaryEntity::class,
         LeaveRequestEntity::class,
         SmtpLogEntity::class,
-        StaffDirectoryEntity::class
+        StaffDirectoryEntity::class,
+        AdminMessageEntity::class,
+        AdminReplyEntity::class
     ],
-    version = 1,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

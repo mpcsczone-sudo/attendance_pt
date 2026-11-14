@@ -93,6 +93,8 @@ function format_staff_profile(array $row): array {
         'designation' => $row['designation'],
         'role' => $row['role'],
         'approval_status' => $row['approval_status'] ?? 'APPROVED',
+        'shift_start_time' => substr((string)($row['shift_start_time'] ?? '09:30:00'), 0, 5),
+        'shift_end_time' => substr((string)($row['shift_end_time'] ?? '16:30:00'), 0, 5),
     ];
 }
 
@@ -120,11 +122,11 @@ function require_auth(PDO $pdo): array {
     }
     $tokenHash = hash('sha256', $matches[1]);
     $stmt = $pdo->prepare(
-        'SELECT u.* FROM api_tokens t
+        "SELECT u.* FROM api_tokens t
          INNER JOIN staff_users u ON u.id = t.staff_id
          WHERE t.token_hash = ? AND t.expires_at > NOW()
-           AND u.is_active = 1 AND u.approval_status = "APPROVED"
-         LIMIT 1'
+           AND u.is_active = 1 AND u.approval_status = 'APPROVED'
+         LIMIT 1"
     );
     $stmt->execute([$tokenHash]);
     $user = $stmt->fetch();

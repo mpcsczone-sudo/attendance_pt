@@ -1,8 +1,10 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -43,10 +45,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -174,12 +178,26 @@ fun FeedbackBanner(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LaunchedEffect(bannerMessage) {
         if (!bannerMessage.isNullOrBlank()) {
+            delay(2_000L)
+            onDismiss()
+        }
+    }
+
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        AnimatedVisibility(
+            visible = !bannerMessage.isNullOrBlank(),
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = EmeraldContainer),
+                border = BorderStroke(1.dp, EmeraldSuccess.copy(alpha = 0.35f)),
                 shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("feedback_success_banner")
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -193,7 +211,7 @@ fun FeedbackBanner(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = bannerMessage,
+                        text = bannerMessage.orEmpty(),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF0E4733),
                         modifier = Modifier.weight(1f)

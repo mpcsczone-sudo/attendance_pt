@@ -11,9 +11,13 @@ import com.example.data.model.SmtpReceipt
 import com.example.data.model.StaffProfile
 import com.example.data.repository.AttendanceRepository
 import com.example.data.repository.RepoResult
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -50,6 +54,23 @@ class AuthViewModel(
             repository.sessionFlow.collect { stored ->
                 _uiState.update { it.copy(currentBaseUrl = stored.baseUrl) }
             }
+        }
+        viewModelScope.launch {
+            _uiState
+                .map { it.infoMessage to it.errorMessage }
+                .distinctUntilChanged()
+                .collectLatest { (info, error) ->
+                    if (!info.isNullOrBlank() || !error.isNullOrBlank()) {
+                        delay(2_200L)
+                        _uiState.update {
+                            if (it.infoMessage == info && it.errorMessage == error) {
+                                it.copy(infoMessage = null, errorMessage = null, isBackendMissing = false)
+                            } else {
+                                it
+                            }
+                        }
+                    }
+                }
         }
         checkServerHealth()
     }

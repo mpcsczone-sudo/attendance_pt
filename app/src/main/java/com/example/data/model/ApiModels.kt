@@ -41,7 +41,9 @@ data class StaffProfile(
     val department: String = "",
     val designation: String = "",
     val role: String = "STAFF",
-    @Json(name = "approval_status") val approvalStatus: String = "APPROVED"
+    @Json(name = "approval_status") val approvalStatus: String = "APPROVED",
+    @Json(name = "shift_start_time") val shiftStartTime: String = "09:30",
+    @Json(name = "shift_end_time") val shiftEndTime: String = "16:30"
 )
 
 @JsonClass(generateAdapter = true)
@@ -49,6 +51,13 @@ data class AdminStaffApprovalRequest(
     val action: String, // "approve" | "reject"
     @Json(name = "staff_id") val staffId: Int,
     val note: String = ""
+)
+
+@JsonClass(generateAdapter = true)
+data class StaffTimeMappingRequest(
+    @Json(name = "login_id") val loginId: String,
+    @Json(name = "shift_start_time") val shiftStartTime: String,
+    @Json(name = "shift_end_time") val shiftEndTime: String
 )
 
 @JsonClass(generateAdapter = true)
@@ -80,7 +89,7 @@ data class GmailOtpActionRequest(
     val action: String, // "request_otp" or "verify_otp"
     val identifier: String,
     val otp: String? = null,
-    val purpose: String = "LOGIN" // "LOGIN" or "GMAIL_LINK"
+    val purpose: String = "LOGIN"
 )
 
 @JsonClass(generateAdapter = true)
@@ -100,9 +109,15 @@ data class MapGmailRequest(
 
 @JsonClass(generateAdapter = true)
 data class AttendanceMarkRequest(
-    val action: String, // "CHECK_IN", "CHECK_OUT", "ON_DUTY", "LATE"
+    val action: String, // "CHECK_IN", "CHECK_OUT", "ON_DUTY"
     val remarks: String = "",
-    @Json(name = "device_info") val deviceInfo: String = ""
+    @Json(name = "device_info") val deviceInfo: String = "",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    @Json(name = "geo_accuracy_m") val geoAccuracyM: Float? = null,
+    @Json(name = "geo_address") val geoAddress: String? = null,
+    @Json(name = "face_verified") val faceVerified: Boolean = false,
+    @Json(name = "face_confidence") val faceConfidence: Float? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -117,8 +132,12 @@ data class AttendanceRecordDto(
     @Json(name = "check_in_time") val checkInTime: String? = null,
     @Json(name = "check_out_time") val checkOutTime: String? = null,
     val status: String = "PRESENT",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    @Json(name = "geo_address") val geoAddress: String? = null,
+    @Json(name = "face_verified") val faceVerified: Boolean = false,
     val remarks: String = "",
-    @Json(name = "check_in_source") val checkInSource: String = "ANDROID_APP"
+    @Json(name = "check_in_source") val checkInSource: String = "FACE_GEO_APP"
 )
 
 @JsonClass(generateAdapter = true)
@@ -136,6 +155,8 @@ data class AttendanceSummaryDto(
 @JsonClass(generateAdapter = true)
 data class AttendanceListData(
     val today: AttendanceRecordDto? = null,
+    val staff: StaffProfile? = null,
+    @Json(name = "target_staff") val targetStaff: StaffProfile? = null,
     val summary: AttendanceSummaryDto = AttendanceSummaryDto(),
     val records: List<AttendanceRecordDto> = emptyList(),
     @Json(name = "department_register") val departmentRegister: List<AttendanceRecordDto> = emptyList()
@@ -192,4 +213,46 @@ data class SmtpLogDto(
 @JsonClass(generateAdapter = true)
 data class SmtpTestRequest(
     val action: String = "send_test"
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminMessageReplyDto(
+    val id: Int = 0,
+    @Json(name = "parent_id") val parentId: Int = 0,
+    @Json(name = "sender_staff_id") val senderStaffId: Int = 0,
+    @Json(name = "sender_login_id") val senderLoginId: String = "",
+    @Json(name = "sender_name") val senderName: String = "",
+    @Json(name = "sender_role") val senderRole: String = "STAFF",
+    @Json(name = "message_body") val messageBody: String = "",
+    @Json(name = "created_at") val createdAt: String = ""
+)
+
+@JsonClass(generateAdapter = true)
+data class AdminMessageThreadDto(
+    val id: Int = 0,
+    @Json(name = "sender_staff_id") val senderStaffId: Int = 0,
+    @Json(name = "sender_name") val senderName: String = "",
+    @Json(name = "sender_login_id") val senderLoginId: String = "",
+    @Json(name = "target_staff_id") val targetStaffId: Int? = null,
+    @Json(name = "target_login_id") val targetLoginId: String? = null,
+    @Json(name = "target_name") val targetName: String? = null,
+    val title: String = "",
+    @Json(name = "message_body") val messageBody: String = "",
+    @Json(name = "created_at") val createdAt: String = "",
+    val replies: List<AdminMessageReplyDto> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class SendAdminMessageRequest(
+    val action: String = "send_admin_message",
+    @Json(name = "target_login_id") val targetLoginId: String? = null,
+    val title: String,
+    @Json(name = "message_body") val messageBody: String
+)
+
+@JsonClass(generateAdapter = true)
+data class ReplyAdminMessageRequest(
+    val action: String = "reply",
+    @Json(name = "parent_id") val parentId: Int,
+    @Json(name = "message_body") val messageBody: String
 )

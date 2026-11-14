@@ -42,6 +42,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,7 +55,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.data.model.LeaveRequestDto
 import com.example.ui.components.FeedbackBanner
-import com.example.ui.components.SmtpReceiptCard
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.EmeraldSuccess
@@ -70,6 +70,8 @@ fun LeaveAndRequestsScreen(
     uiState: DashboardUiState,
     onSubmitLeave: (leaveType: String, startDate: String, endDate: String, reason: String) -> Unit,
     onReviewLeave: (requestId: Int, approve: Boolean, reviewNote: String) -> Unit,
+    onCancelLeave: (requestId: Int) -> Unit,
+    onRefresh: () -> Unit,
     onOpenServerSetup: () -> Unit,
     onDismissFeedback: () -> Unit,
     modifier: Modifier = Modifier
@@ -81,20 +83,25 @@ fun LeaveAndRequestsScreen(
     var endDate by rememberSaveable { mutableStateOf(todayIso) }
     var reason by rememberSaveable { mutableStateOf("") }
 
-    val isHodOrAdmin = uiState.staff?.role == "HOD" || uiState.staff?.role == "ADMIN"
+    val isHodOrAdmin = uiState.staff?.role?.equals("HOD", ignoreCase = true) == true ||
+        uiState.staff?.role?.equals("ADMIN", ignoreCase = true) == true
     var showApprovalsTab by rememberSaveable { mutableStateOf(false) }
 
     var reviewTarget by remember { mutableStateOf<Pair<LeaveRequestDto, Boolean>?>(null) }
     var reviewNoteInput by remember { mutableStateOf("") }
 
-    Box(
-        modifier = modifier.fillMaxSize(),
-        contentAlignment = Alignment.TopCenter
+    PullToRefreshBox(
+        isRefreshing = uiState.isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier
+            .fillMaxSize()
+            .testTag("leaves_pull_refresh")
     ) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .widthIn(max = 720.dp),
+                .widthIn(max = 720.dp)
+                .align(Alignment.TopCenter),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
@@ -106,10 +113,6 @@ fun LeaveAndRequestsScreen(
                     onOpenServerSetup = onOpenServerSetup,
                     onDismiss = onDismissFeedback
                 )
-            }
-
-            item {
-                SmtpReceiptCard(receipt = uiState.lastSmtpReceipt)
             }
 
             // Submit Leave / Regularization Card
@@ -290,9 +293,12 @@ fun LeaveAndRequestsScreen(
                 }
             } else {
                 items(activeList, key = { "${it.id}_${showApprovalsTab}" }) { req ->
+                    val isPending = req.status.equals("PENDING", ignoreCase = true)
                     LeaveRequestCard(
                         item = req,
-                        canReview = showApprovalsTab && isHodOrAdmin && req.status == "PENDING",
+                        canReview = showApprovalsTab && isHodOrAdmin && isPending,
+                        canCancel = !showApprovalsTab && isPending,
+                        isSubmitting = uiState.isSubmittingAction,
                         onApprove = {
                             reviewNoteInput = "Approved"
                             reviewTarget = req to true
@@ -300,7 +306,8 @@ fun LeaveAndRequestsScreen(
                         onReject = {
                             reviewNoteInput = ""
                             reviewTarget = req to false
-                        }
+                        },
+                        onCancel = { onCancelLeave(req.id) }
                     )
                 }
             }
@@ -355,8 +362,11 @@ fun LeaveAndRequestsScreen(
 private fun LeaveRequestCard(
     item: LeaveRequestDto,
     canReview: Boolean,
+    canCancel: Boolean,
+    isSubmitting: Boolean,
     onApprove: () -> Unit,
-    onReject: () -> Unit
+    onReject: () -> Unit,
+    onCancel: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -412,6 +422,7 @@ private fun LeaveRequestCard(
                 ) {
                     OutlinedButton(
                         onClick = onReject,
+                        enabled = !isSubmitting,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = CrimsonError),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -421,6 +432,7 @@ private fun LeaveRequestCard(
                     }
                     Button(
                         onClick = onApprove,
+                        enabled = !isSubmitting,
                         colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -428,6 +440,21 @@ private fun LeaveRequestCard(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Approve")
                     }
+                }
+            } else if (canCancel) {
+                OutlinedButton(
+                    onClick = onCancel,
+                    enabled = !isSubmitting,
+                    border = BorderStroke(1.dp, CrimsonError),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = CrimsonError),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("cancel_leave_${item.id}")
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Cancel Request", modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Cancel Leave Request")
                 }
             }
         }

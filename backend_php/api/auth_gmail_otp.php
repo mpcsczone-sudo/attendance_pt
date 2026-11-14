@@ -39,8 +39,8 @@ if ($action === 'request_otp') {
     $expiresAt = date('Y-m-d H:i:s', time() + 600);
 
     $ins = $pdo->prepare(
-        'INSERT INTO otp_verifications (staff_id, gmail_id, otp_hash, purpose, expires_at)
-         VALUES (?, ?, ?, "LOGIN", ?)'
+        "INSERT INTO otp_verifications (staff_id, gmail_id, otp_hash, purpose, expires_at)
+         VALUES (?, ?, ?, 'LOGIN', ?)"
     );
     $ins->execute([$staffId, $gmail, $otpHash, $expiresAt]);
 
@@ -68,9 +68,9 @@ if ($action === 'verify_otp') {
         json_error('Enter the 6-digit OTP code.', 422);
     }
     $q = $pdo->prepare(
-        'SELECT * FROM otp_verifications
-         WHERE staff_id = ? AND purpose = "LOGIN" AND consumed_at IS NULL AND expires_at > NOW()
-         ORDER BY id DESC LIMIT 1'
+        "SELECT * FROM otp_verifications
+         WHERE staff_id = ? AND purpose = 'LOGIN' AND consumed_at IS NULL AND expires_at > NOW()
+         ORDER BY id DESC LIMIT 1"
     );
     $q->execute([$staffId]);
     $row = $q->fetch();

@@ -1,5 +1,6 @@
 package com.example.data.remote
 
+import com.example.data.model.AdminMessageThreadDto
 import com.example.data.model.AdminStaffApprovalRequest
 import com.example.data.model.ApiResponse
 import com.example.data.model.AttendanceListData
@@ -14,9 +15,12 @@ import com.example.data.model.LoginRequest
 import com.example.data.model.MapGmailRequest
 import com.example.data.model.OtpDispatchData
 import com.example.data.model.RegisterStaffRequest
+import com.example.data.model.ReplyAdminMessageRequest
+import com.example.data.model.SendAdminMessageRequest
 import com.example.data.model.SmtpLogDto
 import com.example.data.model.SmtpTestRequest
 import com.example.data.model.StaffProfile
+import com.example.data.model.StaffTimeMappingRequest
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -52,12 +56,17 @@ interface PttpApiService {
     @POST("admin_staff_approval.php")
     suspend fun reviewStaffRegistration(@Body request: AdminStaffApprovalRequest): Response<ApiResponse<List<StaffProfile>>>
 
+    @POST("staff_time_mapping.php")
+    suspend fun updateStaffTimeMapping(@Body request: StaffTimeMappingRequest): Response<ApiResponse<StaffProfile>>
+
     @POST("attendance_mark.php")
     suspend fun markAttendance(@Body request: AttendanceMarkRequest): Response<ApiResponse<AttendanceRecordDto>>
 
     @GET("attendance_list.php")
     suspend fun getAttendance(
-        @Query("month") month: String? = null
+        @Query("month") month: String? = null,
+        @Query("target_staff_id") targetStaffId: Int? = null,
+        @Query("target_login_id") targetLoginId: String? = null
     ): Response<ApiResponse<AttendanceListData>>
 
     @GET("leave_manage.php")
@@ -74,4 +83,13 @@ interface PttpApiService {
 
     @POST("smtp_logs.php")
     suspend fun sendTestSmtp(@Body request: SmtpTestRequest): Response<ApiResponse<List<SmtpLogDto>>>
+
+    @GET("admin_messages.php")
+    suspend fun getAdminMessages(): Response<ApiResponse<List<AdminMessageThreadDto>>>
+
+    @POST("admin_messages.php")
+    suspend fun sendAdminMessage(@Body request: SendAdminMessageRequest): Response<ApiResponse<List<AdminMessageThreadDto>>>
+
+    @POST("admin_messages.php")
+    suspend fun replyToAdminMessage(@Body request: ReplyAdminMessageRequest): Response<ApiResponse<List<AdminMessageThreadDto>>>
 }

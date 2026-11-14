@@ -5,22 +5,29 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.AlternateEmail
-import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.EventNote
 import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.outlined.AlternateEmail
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.EventNote
 import androidx.compose.material.icons.outlined.Fingerprint
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,32 +37,50 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.local.SessionPreferences
 import com.example.data.local.StoredSession
 import com.example.data.remote.NetworkClient
 import com.example.data.repository.AttendanceRepository
+import com.example.notifications.ShiftReminderScheduler
 import com.example.ui.components.ServerSetupBottomSheet
 import com.example.ui.screens.AttendanceHomeScreen
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.GmailMappingAndSmtpScreen
 import com.example.ui.screens.LeaveAndRequestsScreen
+import com.example.ui.theme.EmeraldContainer
+import com.example.ui.theme.EmeraldSuccess
 import com.example.ui.theme.PttpStaffTheme
+import com.example.ui.theme.RoyalBlueDark
+import com.example.ui.theme.RoyalBluePrimary
 import com.example.ui.viewmodel.AuthViewModel
 import com.example.ui.viewmodel.DashboardViewModel
 
@@ -65,6 +90,12 @@ private enum class AppTab(
     val unselectedIcon: ImageVector,
     val testTag: String
 ) {
+    DASHBOARD(
+        label = "Dashboard",
+        selectedIcon = Icons.Filled.Dashboard,
+        unselectedIcon = Icons.Outlined.Dashboard,
+        testTag = "nav_dashboard"
+    ),
     ATTENDANCE(
         label = "Attendance",
         selectedIcon = Icons.Filled.Fingerprint,
@@ -72,16 +103,16 @@ private enum class AppTab(
         testTag = "nav_attendance"
     ),
     LEAVES(
-        label = "Leaves & OD",
+        label = "Leaves",
         selectedIcon = Icons.Filled.EventNote,
         unselectedIcon = Icons.Outlined.EventNote,
         testTag = "nav_leaves"
     ),
-    GMAIL_SMTP(
-        label = "Gmail & SMTP",
-        selectedIcon = Icons.Filled.AlternateEmail,
-        unselectedIcon = Icons.Outlined.AlternateEmail,
-        testTag = "nav_gmail_smtp"
+    NOTIFICATIONS(
+        label = "Notifications",
+        selectedIcon = Icons.Filled.Notifications,
+        unselectedIcon = Icons.Outlined.Notifications,
+        testTag = "nav_notifications"
     )
 }
 
@@ -89,6 +120,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        ShiftReminderScheduler.ensureChannel(applicationContext)
 
         val prefs = SessionPreferences(applicationContext)
         val db = NetworkClient.getDatabase(applicationContext)
@@ -112,7 +144,7 @@ class MainActivity : ComponentActivity() {
                     )
                 } else {
                     val dashboardViewModel: DashboardViewModel = viewModel(
-                        factory = DashboardViewModel.Factory(repository)
+                        factory = DashboardViewModel.Factory(applicationContext, repository)
                     )
                     AuthenticatedShell(viewModel = dashboardViewModel)
                 }
@@ -127,11 +159,26 @@ private fun AuthenticatedShell(
     viewModel: DashboardViewModel
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var currentTab by rememberSaveable { mutableStateOf(AppTab.ATTENDANCE) }
+    var currentTab by rememberSaveable { mutableStateOf(AppTab.DASHBOARD) }
     var showServerSheet by remember { mutableStateOf(false) }
 
-    BackHandler(enabled = currentTab != AppTab.ATTENDANCE) {
-        currentTab = AppTab.ATTENDANCE
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.silentSyncInBackground()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    LaunchedEffect(currentTab) {
+        viewModel.silentSyncInBackground()
+    }
+
+    BackHandler(enabled = currentTab != AppTab.DASHBOARD) {
+        currentTab = AppTab.DASHBOARD
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -142,27 +189,82 @@ private fun AuthenticatedShell(
             topBar = {
                 TopAppBar(
                     title = {
-                        Text(
-                            text = when (currentTab) {
-                                AppTab.ATTENDANCE -> stringResource(R.string.college_full_name)
-                                AppTab.LEAVES -> "Leaves & Regularization"
-                                AppTab.GMAIL_SMTP -> "Gmail Mapping & SMTP"
-                            },
-                            style = MaterialTheme.typography.titleLarge
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(
+                                        Brush.linearGradient(
+                                            colors = listOf(RoyalBluePrimary, RoyalBlueDark)
+                                        )
+                                    )
+                            ) {
+                                Text(
+                                    text = "PT",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                Text(
+                                    text = when (currentTab) {
+                                        AppTab.DASHBOARD -> stringResource(R.string.college_full_name)
+                                        AppTab.ATTENDANCE -> "Check-In & Out"
+                                        AppTab.LEAVES -> "Leaves & Regularization"
+                                        AppTab.NOTIFICATIONS -> "Notifications"
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(EmeraldSuccess)
+                                    )
+                                    Text(
+                                        text = if (uiState.lastAutoSyncedAt.isNotBlank()) {
+                                            "Auto-Sync Live • ${uiState.lastAutoSyncedAt}"
+                                        } else {
+                                            "Auto-Sync Live"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = EmeraldSuccess,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = MaterialTheme.colorScheme.background,
                         titleContentColor = MaterialTheme.colorScheme.onBackground
                     ),
                     actions = {
-                        IconButton(
-                            onClick = { showServerSheet = true },
-                            modifier = Modifier.testTag("topbar_server_setup_button")
+                        Surface(
+                            color = EmeraldContainer.copy(alpha = 0.7f),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.padding(end = 2.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Dns,
-                                contentDescription = "PHP & MySQL Server Settings"
+                            Text(
+                                text = uiState.staff?.role ?: "STAFF",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = EmeraldSuccess,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }
                         IconButton(
@@ -193,7 +295,14 @@ private fun AuthenticatedShell(
                                         contentDescription = tab.label
                                     )
                                 },
-                                label = { Text(tab.label) },
+                                label = {
+                                    Text(
+                                        text = tab.label,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
                                 modifier = Modifier.testTag(tab.testTag)
                             )
                         }
@@ -221,7 +330,13 @@ private fun AuthenticatedShell(
                                         contentDescription = tab.label
                                     )
                                 },
-                                label = { Text(tab.label) },
+                                label = {
+                                    Text(
+                                        text = tab.label,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
                                 modifier = Modifier.testTag(tab.testTag)
                             )
                         }
@@ -230,12 +345,26 @@ private fun AuthenticatedShell(
 
                 Box(modifier = Modifier.weight(1f).fillMaxSize()) {
                     when (currentTab) {
+                        AppTab.DASHBOARD -> DashboardScreen(
+                            uiState = uiState,
+                            onChangeMonth = { delta -> viewModel.changeMonth(delta) },
+                            onJumpToCurrentMonth = { viewModel.jumpToCurrentMonth() },
+                            onSelectDashboardStaff = { selected -> viewModel.selectDashboardStaff(selected) },
+                            onRefresh = { viewModel.refreshAll(manualSync = true) },
+                            onOpenAttendanceTab = { currentTab = AppTab.ATTENDANCE },
+                            onOpenLeavesTab = { currentTab = AppTab.LEAVES },
+                            onOpenNotificationsTab = { currentTab = AppTab.NOTIFICATIONS },
+                            onOpenServerSetup = { showServerSheet = true },
+                            onDismissFeedback = { viewModel.clearFeedback() }
+                        )
+
                         AppTab.ATTENDANCE -> AttendanceHomeScreen(
                             uiState = uiState,
-                            onMarkAttendance = { action, remarks ->
-                                viewModel.markAttendance(action, remarks)
+                            onCaptureGeo = { viewModel.captureGeoLocation() },
+                            onMarkAttendance = { action, remarks, faceVerified, confidence ->
+                                viewModel.markAttendance(action, remarks, faceVerified, confidence)
                             },
-                            onRefresh = { viewModel.refreshAll() },
+                            onRefresh = { viewModel.refreshAll(manualSync = true) },
                             onOpenServerSetup = { showServerSheet = true },
                             onDismissFeedback = { viewModel.clearFeedback() }
                         )
@@ -248,12 +377,23 @@ private fun AuthenticatedShell(
                             onReviewLeave = { id, approve, note ->
                                 viewModel.reviewLeave(id, approve, note)
                             },
+                            onCancelLeave = { id ->
+                                viewModel.cancelLeave(id)
+                            },
+                            onRefresh = { viewModel.refreshAll(manualSync = true) },
                             onOpenServerSetup = { showServerSheet = true },
                             onDismissFeedback = { viewModel.clearFeedback() }
                         )
 
-                        AppTab.GMAIL_SMTP -> GmailMappingAndSmtpScreen(
+                        AppTab.NOTIFICATIONS -> GmailMappingAndSmtpScreen(
                             uiState = uiState,
+                            onRefresh = { viewModel.refreshAll(manualSync = true) },
+                            onSendAdminMessage = { targetLoginId, title, body ->
+                                viewModel.sendAdminMessage(targetLoginId, title, body)
+                            },
+                            onReplyToAdminMessage = { parentId, body ->
+                                viewModel.replyToAdminMessage(parentId, body)
+                            },
                             onInitiateGmailMapping = { viewModel.initiateGmailMapping(it) },
                             onConfirmGmailMapping = { viewModel.confirmGmailMapping(it) },
                             onCancelGmailMapping = { viewModel.cancelGmailMappingStep() },
@@ -263,7 +403,12 @@ private fun AuthenticatedShell(
                             onReviewStaffRegistration = { staffId, approve ->
                                 viewModel.reviewStaffRegistration(staffId, approve)
                             },
-                            onSendTestSmtp = { viewModel.sendTestSmtpAlert() },
+                            onUpdateShiftTimeMapping = { loginId, startTime, endTime ->
+                                viewModel.updateStaffTimeMapping(loginId, startTime, endTime)
+                            },
+                            onToggleShiftReminder = { enabled ->
+                                viewModel.setReminderEnabled(enabled)
+                            },
                             onOpenServerSetup = { showServerSheet = true },
                             onDismissFeedback = { viewModel.clearFeedback() }
                         )

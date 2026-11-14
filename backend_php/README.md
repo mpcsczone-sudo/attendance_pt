@@ -21,11 +21,14 @@ Upload the files so `https://pttpshuklacollege.com/api/health.php` is reachable:
 - `public_html/api/auth_register.php`
 - `public_html/api/auth_gmail_otp.php`
 - `public_html/api/map_gmail.php`
+- `public_html/api/admin_staff_approval.php`
+- `public_html/api/staff_time_mapping.php`
 - `public_html/api/attendance_mark.php`
 - `public_html/api/attendance_list.php`
 - `public_html/api/leave_manage.php`
 - `public_html/api/staff_directory.php`
 - `public_html/api/smtp_logs.php`
+- `public_html/api/admin_messages.php`
 
 ## 4. Verify
 Open `https://pttpshuklacollege.com/api/health.php` or tap **Ping API** inside the **PTTP Staff** Android app.

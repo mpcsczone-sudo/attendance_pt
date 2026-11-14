@@ -28,10 +28,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
     if ($action === 'approve') {
         $upd = $pdo->prepare(
-            'UPDATE staff_users
-             SET approval_status = "APPROVED", is_active = 1, gmail_verified = 1,
+            "UPDATE staff_users
+             SET approval_status = 'APPROVED', is_active = 1, gmail_verified = 1,
                  approved_by = ?, approved_at = NOW(), rejection_reason = NULL
-             WHERE id = ?'
+             WHERE id = ?"
         );
         $upd->execute([(int)$actor['id'], $targetStaffId]);
 
@@ -45,10 +45,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
         $msg = "Approved {$target['login_id']} and sent SMTP notification to {$target['gmail_id']}.";
     } elseif ($action === 'reject') {
         $upd = $pdo->prepare(
-            'UPDATE staff_users
-             SET approval_status = "REJECTED", is_active = 0,
+            "UPDATE staff_users
+             SET approval_status = 'REJECTED', is_active = 0,
                  approved_by = ?, approved_at = NOW(), rejection_reason = ?
-             WHERE id = ?'
+             WHERE id = ?"
         );
         $upd->execute([(int)$actor['id'], $note, $targetStaffId]);
 
@@ -67,11 +67,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 
 if ($actor['role'] === 'ADMIN') {
     $listStmt = $pdo->query(
-        'SELECT * FROM staff_users WHERE approval_status = "PENDING" ORDER BY created_at DESC LIMIT 100'
+        "SELECT * FROM staff_users WHERE approval_status = 'PENDING' ORDER BY created_at DESC LIMIT 100"
     );
 } else {
     $listStmt = $pdo->prepare(
-        'SELECT * FROM staff_users WHERE approval_status = "PENDING" AND department = ? ORDER BY created_at DESC LIMIT 100'
+        "SELECT * FROM staff_users WHERE approval_status = 'PENDING' AND department = ? ORDER BY created_at DESC LIMIT 100"
     );
     $listStmt->execute([$actor['department']]);
 }

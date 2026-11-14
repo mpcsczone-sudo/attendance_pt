@@ -19,7 +19,9 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 data class StoredSession(
     val token: String = "",
     val staff: StaffProfile? = null,
-    val baseUrl: String = SessionPreferences.DEFAULT_BASE_URL
+    val baseUrl: String = SessionPreferences.DEFAULT_BASE_URL,
+    val lastCheckedInDate: String = "",
+    val reminderEnabled: Boolean = true
 ) {
     val isLoggedIn: Boolean get() = token.isNotBlank() && staff != null
 }
@@ -38,16 +40,23 @@ class SessionPreferences(private val context: Context) {
                 fullName = prefs[KEY_FULL_NAME].orEmpty(),
                 department = prefs[KEY_DEPARTMENT].orEmpty(),
                 designation = prefs[KEY_DESIGNATION].orEmpty(),
-                role = prefs[KEY_ROLE].orEmpty().ifBlank { "STAFF" }
+                role = prefs[KEY_ROLE].orEmpty().ifBlank { "STAFF" },
+                approvalStatus = prefs[KEY_APPROVAL_STATUS].orEmpty().ifBlank { "APPROVED" },
+                shiftStartTime = prefs[KEY_SHIFT_START].orEmpty().ifBlank { "09:30" },
+                shiftEndTime = prefs[KEY_SHIFT_END].orEmpty().ifBlank { "16:30" }
             )
         } else null
 
         StoredSession(
             token = token,
             staff = staff,
-            baseUrl = normalizeBaseUrl(prefs[KEY_BASE_URL].orEmpty().ifBlank { DEFAULT_BASE_URL })
+            baseUrl = normalizeBaseUrl(prefs[KEY_BASE_URL].orEmpty().ifBlank { DEFAULT_BASE_URL }),
+            lastCheckedInDate = prefs[KEY_LAST_CHECKIN_DATE].orEmpty(),
+            reminderEnabled = prefs[KEY_REMINDER_ENABLED] ?: true
         )
     }
+
+    suspend fun getSessionSnapshot(): StoredSession = sessionFlow.first()
 
     suspend fun getBaseUrl(): String {
         val raw = context.dataStore.data.first()[KEY_BASE_URL].orEmpty().ifBlank { DEFAULT_BASE_URL }
@@ -59,16 +68,25 @@ class SessionPreferences(private val context: Context) {
     }
 
     suspend fun saveAuthSession(session: AuthSession) {
+        saveStaffProfile(session.staff, session.token)
+    }
+
+    suspend fun saveStaffProfile(staff: StaffProfile, tokenOverride: String? = null) {
         context.dataStore.edit { prefs ->
-            prefs[KEY_TOKEN] = session.token
-            prefs[KEY_STAFF_ID] = session.staff.id
-            prefs[KEY_LOGIN_ID] = session.staff.loginId
-            prefs[KEY_GMAIL_ID] = session.staff.gmailId
-            prefs[KEY_GMAIL_VERIFIED] = session.staff.gmailVerified
-            prefs[KEY_FULL_NAME] = session.staff.fullName
-            prefs[KEY_DEPARTMENT] = session.staff.department
-            prefs[KEY_DESIGNATION] = session.staff.designation
-            prefs[KEY_ROLE] = session.staff.role
+            if (tokenOverride != null) {
+                prefs[KEY_TOKEN] = tokenOverride
+            }
+            prefs[KEY_STAFF_ID] = staff.id
+            prefs[KEY_LOGIN_ID] = staff.loginId
+            prefs[KEY_GMAIL_ID] = staff.gmailId
+            prefs[KEY_GMAIL_VERIFIED] = staff.gmailVerified
+            prefs[KEY_FULL_NAME] = staff.fullName
+            prefs[KEY_DEPARTMENT] = staff.department
+            prefs[KEY_DESIGNATION] = staff.designation
+            prefs[KEY_ROLE] = staff.role
+            prefs[KEY_APPROVAL_STATUS] = staff.approvalStatus
+            prefs[KEY_SHIFT_START] = staff.shiftStartTime.ifBlank { "09:30" }
+            prefs[KEY_SHIFT_END] = staff.shiftEndTime.ifBlank { "16:30" }
         }
     }
 
@@ -76,6 +94,18 @@ class SessionPreferences(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[KEY_GMAIL_ID] = gmailId
             prefs[KEY_GMAIL_VERIFIED] = verified
+        }
+    }
+
+    suspend fun markCheckedInDate(dateStr: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_LAST_CHECKIN_DATE] = dateStr
+        }
+    }
+
+    suspend fun setReminderEnabled(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_REMINDER_ENABLED] = enabled
         }
     }
 
@@ -107,6 +137,11 @@ class SessionPreferences(private val context: Context) {
         private val KEY_DEPARTMENT = stringPreferencesKey("department")
         private val KEY_DESIGNATION = stringPreferencesKey("designation")
         private val KEY_ROLE = stringPreferencesKey("role")
+        private val KEY_APPROVAL_STATUS = stringPreferencesKey("approval_status")
+        private val KEY_SHIFT_START = stringPreferencesKey("shift_start_time")
+        private val KEY_SHIFT_END = stringPreferencesKey("shift_end_time")
+        private val KEY_LAST_CHECKIN_DATE = stringPreferencesKey("last_checkin_date")
+        private val KEY_REMINDER_ENABLED = booleanPreferencesKey("reminder_enabled")
         private val KEY_BASE_URL = stringPreferencesKey("api_base_url")
 
         fun normalizeBaseUrl(input: String): String {

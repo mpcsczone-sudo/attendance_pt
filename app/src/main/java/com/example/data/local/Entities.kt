@@ -15,8 +15,25 @@ data class AttendanceEntity(
     val checkInTime: String?,
     val checkOutTime: String?,
     val status: String,
+    val latitude: Double?,
+    val longitude: Double?,
+    val geoAddress: String?,
+    val faceVerified: Boolean,
     val remarks: String,
     val checkInSource: String
+)
+
+@Entity(tableName = "cached_monthly_summary")
+data class MonthlySummaryEntity(
+    @PrimaryKey val month: String,
+    val totalDays: Int,
+    val presentDays: Int,
+    val lateDays: Int,
+    val onDutyDays: Int,
+    val halfDays: Int,
+    val absentDays: Int,
+    val attendancePercentage: Double,
+    val syncedAtMillis: Long
 )
 
 @Entity(tableName = "cached_leave_requests")
@@ -60,5 +77,33 @@ data class StaffDirectoryEntity(
     val fullName: String,
     val department: String,
     val designation: String,
-    val role: String
+    val role: String,
+    val shiftStartTime: String,
+    val shiftEndTime: String
+)
+
+@Entity(tableName = "cached_admin_messages")
+data class AdminMessageEntity(
+    @PrimaryKey val id: Int,
+    val senderStaffId: Int,
+    val senderName: String,
+    val senderLoginId: String,
+    val targetStaffId: Int?,
+    val targetLoginId: String?,
+    val targetName: String?,
+    val title: String,
+    val messageBody: String,
+    val createdAt: String
+)
+
+@Entity(tableName = "cached_admin_replies")
+data class AdminReplyEntity(
+    @PrimaryKey val id: Int,
+    val parentId: Int,
+    val senderStaffId: Int,
+    val senderLoginId: String,
+    val senderName: String,
+    val senderRole: String,
+    val messageBody: String,
+    val createdAt: String
 )
